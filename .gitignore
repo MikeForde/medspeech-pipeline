@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+.env
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Runs & outputs
+runs/
+
+# Large audio samples
+samples/
+
+# HuggingFace cache (optional but common)
+.cache/
