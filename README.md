@@ -9,47 +9,178 @@ from spoken battlefield narratives.
 
 ------------------------------------------------------------------------
 
-## Current Status
+# Current Status
 
 ✅ Native Python project (Apple Silicon / M1 tested)\
 ✅ Audio normalization & resampling (FFmpeg)\
-✅ Whisper transcription via MLX (Metal-accelerated)\
 ✅ Stage toggles for pre-processing comparison\
+✅ DeepFilterNet integrated (Stage 0a)\
+✅ Demucs integrated (Stage 0b -- optional)\
+✅ Whisper transcription via MLX (Metal-accelerated)\
 ✅ Run artifact tracking & timing metadata
+
+⚠️ SepFormer and Conv-TasNet were evaluated but are not currently used
+(see below).
 
 LLM extraction, clinical review, and verification stages will be added
 next.
 
 ------------------------------------------------------------------------
 
-## Architecture (Current)
+# Architecture (Current)
 
-### Stage 0 -- Audio Preparation
+## Stage 0 --- Audio Preparation
 
 -   Converts input audio to:
     -   16 kHz
     -   Mono WAV
 -   Applies gentle loudness normalization
 
-### Stage 0a -- Noise Reduction (Stub)
+------------------------------------------------------------------------
 
--   Currently pass-through
--   Designed to integrate DeepFilterNet / RNNoise
+## Stage 0a --- Noise Reduction (DeepFilterNet)
 
-### Stage 0b -- Speech Separation (Stub)
+DeepFilterNet2 is used for speech-focused denoising.
 
--   Currently pass-through
--   Designed for future SpeechBrain / SepFormer integration
+### Why DeepFilterNet?
 
-### Stage 1 -- Transcription
+-   Designed specifically for speech enhancement
+-   Performs well on:
+    -   Background environmental noise
+    -   Handling noise
+    -   Broadband interference
+-   Minimal speech distortion
+-   Fast enough for laptop deployment
 
--   MLX Whisper (Apple Silicon accelerated)
--   Vocabulary priming for TCCC terminology
--   Produces baseline and post-processing transcripts for comparison
+In testing, DeepFilterNet consistently improved ASR performance without
+introducing the musical artifacts common in source separation models.
 
 ------------------------------------------------------------------------
 
-## Project Structure
+## Stage 0b --- Speech Separation (Demucs)
+
+Demucs is optionally used as a **competing-source suppressor** using:
+
+    demucs --two-stems vocals
+
+### Observations
+
+-   Demucs performs reasonably well at isolating vocal-like content.
+-   It does **not significantly improve ASR results** when DeepFilterNet
+    has already been applied.
+-   It takes longer to run than DeepFilterNet.
+-   In most test cases, it did **not add measurable benefit** beyond
+    Stage 0a.
+
+Demucs is therefore kept optional and primarily for experimentation in
+scenarios involving strong competing structured audio (e.g., radio,
+background speech, PA systems).
+
+------------------------------------------------------------------------
+
+# Separation Experiments (Retired)
+
+Two advanced speech separation models were evaluated:
+
+## 1️⃣ SepFormer (SpeechBrain)
+
+-   Model: speechbrain/sepformer-wsj02mix
+-   Single-channel two-speaker separation
+-   Transformer-based architecture
+
+### Result
+
+-   Introduced distortion in real-world recordings
+-   Degraded Whisper transcription accuracy
+-   Produced artifacts worse than background noise
+
+Conclusion: Not suitable for chaotic field audio in current form.
+
+------------------------------------------------------------------------
+
+## 2️⃣ Conv-TasNet (Asteroid)
+
+-   Model: mpariente/ConvTasNet_WHAM_sepclean
+-   Convolutional time-domain separation network
+
+### Result
+
+-   Significant distortion
+-   Reduced intelligibility
+-   Worse ASR performance than DeepFilterNet alone
+
+Conclusion: Also not suitable for this operational domain.
+
+------------------------------------------------------------------------
+
+## Why Separation Failed
+
+Most pretrained separation models are trained on: - Clean synthetic
+mixtures (WSJ0-2Mix, WHAM) - Telephone-bandwidth speech - Limited
+environmental variability
+
+Battlefield-style recordings contain: - Reverb - Mic coloration -
+Non-stationary environmental noise - Irregular overlap
+
+These models generalized poorly to this domain and introduced artifacts
+that harmed downstream ASR.
+
+------------------------------------------------------------------------
+
+# Micromamba Audio Environment
+
+Separation models required PyTorch-based environments separate from the
+main `.venv`.
+
+We use a dedicated micromamba environment:
+
+    medspeech-audio
+
+## Rebuilding the Environment (Clean Demucs Setup)
+
+Over time, multiple experiments (SepFormer, Conv-TasNet) introduced
+dependency conflicts. The clean setup is:
+
+### 1. Remove old environment
+
+``` bash
+micromamba remove -n medspeech-audio --all -y
+```
+
+### 2. Recreate environment
+
+``` bash
+micromamba create -n medspeech-audio -c conda-forge python=3.11 -y
+```
+
+### 3. Install Demucs
+
+``` bash
+micromamba run -n medspeech-audio python -m pip install --upgrade pip
+micromamba run -n medspeech-audio python -m pip install demucs torchcodec
+```
+
+### 4. Create wrapper
+
+Create \~/bin/demucs:
+
+``` bash
+#!/usr/bin/env bash
+unset HF_TOKEN
+unset HUGGINGFACE_HUB_TOKEN
+exec micromamba run -n medspeech-audio demucs "$@"
+```
+
+Then:
+
+``` bash
+chmod +x ~/bin/demucs
+export PATH="$HOME/bin:$PATH"
+```
+
+------------------------------------------------------------------------
+
+# Project Structure
 
     medspeech-pipeline/
       medspeech/
@@ -58,14 +189,15 @@ next.
         stage0a_denoise.py
         stage0b_separate.py
         whisper_stage.py
+      scripts/        # experimental separation models (retained but unused)
       runs/
       samples/
 
 ------------------------------------------------------------------------
 
-## Installation (macOS M1)
+# Installation (macOS M1)
 
-### 1. Create virtual environment
+## 1. Create virtual environment
 
 ``` bash
 python3 -m venv .venv
@@ -73,18 +205,18 @@ source .venv/bin/activate
 pip install --upgrade pip
 ```
 
-### 2. Install dependencies
+## 2. Install dependencies
 
 ``` bash
-pip install typer rich pydantic soundfile numpy requests openai mlx-whisper
+pip install typer rich pydantic soundfile numpy requests mlx-whisper
 brew install ffmpeg
 ```
 
 ------------------------------------------------------------------------
 
-## Running the Pipeline
+# Running the Pipeline
 
-Place test audio in the `samples/` directory.
+Place test audio in the samples/ directory.
 
 Basic run:
 
@@ -106,44 +238,57 @@ python -m medspeech.cli samples/test.mp3 --whisper-model mlx-community/whisper-l
 
 ------------------------------------------------------------------------
 
-## Output
+# Output
 
-Each run creates a timestamped directory inside `runs/` containing:
+Each run creates a timestamped directory inside runs/ containing:
 
--   `raw.wav`
--   `transcript_raw.txt`
--   `clean_0a.wav` (if enabled)
--   `clean_0a0b.wav` (if enabled)
--   `transcript_clean.txt`
--   `run_meta.json` (timings + configuration)
+-   raw.wav
+-   transcript_raw.txt
+-   clean_0a.wav
+-   clean_0a0b.wav
+-   transcript_clean.txt
+-   run_meta.json
 
-This enables empirical comparison of: - Raw vs processed audio - Impact
-of denoising/separation on ASR quality
+This enables empirical comparison of:
 
-------------------------------------------------------------------------
-
-## Next Steps
-
--   Integrate DeepFilterNet2 for real Stage 0a denoising
--   Add optional speech separation model (Stage 0b)
--   Connect LM Studio for:
-    -   Structured extraction (Qwen 2.5)
-    -   Clinical plausibility review (MedGemma)
-    -   Verification pass
+-   Raw vs processed audio
+-   Impact of denoising/separation on ASR quality
+-   Timing of each stage
 
 ------------------------------------------------------------------------
 
-## Design Goals
+# Design Principles
 
 -   Fully offline capable
--   Modular stages (switchable)
--   Hardware-portable (M1 → Intel NUC → Android tablet)
--   Clinically structured output (AF3899L schema planned)
--   Evaluation-first architecture (store all intermediate artifacts)
+-   Modular switchable stages
+-   Hardware portable (M1 → Intel NUC → Android tablet)
+-   Evaluation-first architecture
+-   Preserve all intermediate artifacts
+-   Empirical over theoretical model choice
 
 ------------------------------------------------------------------------
 
-## Author
+# Current Conclusion
+
+DeepFilterNet (Stage 0a) provides the most reliable improvement for
+real-world trauma speech audio.
+
+Advanced source separation (SepFormer, Conv-TasNet) introduced artifacts
+that degraded ASR performance and are therefore retained only as
+experimental code.
+
+Demucs is optional but does not materially improve performance when
+DeepFilterNet is already applied.
+
+The pipeline will therefore prioritize:
+
+1.  Strong denoising
+2.  Optimized Whisper decoding
+3.  Downstream structured extraction + verification
+
+------------------------------------------------------------------------
+
+# Author
 
 Mike Forde
 
