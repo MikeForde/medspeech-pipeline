@@ -16,6 +16,17 @@ def run_cmd(cmd: list[str]) -> None:
             f"STDERR:\n{proc.stderr}\n"
         )
 
+# More verbose version of above that streams output live, but doesn't capture it for error reporting.
+# def run_cmd(cmd: list[str]) -> None:
+#     # stream output live so long-running tools don't look "hung"
+#     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+#     assert proc.stdout is not None
+#     for line in proc.stdout:
+#         print(line, end="")
+#     rc = proc.wait()
+#     if rc != 0:
+#         raise RuntimeError(f"Command failed (exit {rc}): {' '.join(cmd)}")
+
 
 def normalize_and_resample_to_wav(
     in_audio: Path,
@@ -48,3 +59,28 @@ def normalize_and_resample_to_wav(
     ]
     run_cmd(cmd)
     return out_wav
+
+def resample_wav(
+    in_wav: Path,
+    out_wav: Path,
+    *,
+    sample_rate: int,
+    channels: int = 1,
+) -> Path:
+    """Resample WAV without changing loudness."""
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(in_wav),
+        "-vn",
+        "-ac",
+        str(channels),
+        "-ar",
+        str(sample_rate),
+        str(out_wav),
+    ]
+    run_cmd(cmd)
+    return out_wav
+
