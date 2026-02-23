@@ -224,5 +224,5 @@ The pipeline will therefore prioritize:
 
 Mike Forde
 
-Private research & development project exploring structured clinical
+Project exploring structured clinical
 extraction from chaotic trauma speech environments.
