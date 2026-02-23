@@ -13,17 +13,91 @@ from spoken battlefield narratives.
 
 ✅ Native Python project (Apple Silicon / M1 tested)\
 ✅ Audio normalization & resampling (FFmpeg)\
-✅ Stage toggles for pre-processing comparison\
 ✅ DeepFilterNet integrated (Stage 0a)\
 ✅ Demucs integrated (Stage 0b -- optional)\
 ✅ Whisper transcription via MLX (Metal-accelerated)\
+✅ Stage toggles for empirical comparison\
 ✅ Run artifact tracking & timing metadata
 
 ⚠️ SepFormer and Conv-TasNet were evaluated but are not currently used
-(see below).
+(see "Separation Experiments" below).
 
-LLM extraction, clinical review, and verification stages will be added
-next.
+------------------------------------------------------------------------
+
+# First-Time Setup (macOS M1 / M2)
+
+## 1. System Dependencies
+
+``` bash
+brew install ffmpeg micromamba
+```
+
+------------------------------------------------------------------------
+
+## 2. Python Virtual Environment (.venv)
+
+``` bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install typer rich pydantic soundfile numpy requests mlx-whisper deepfilternet
+```
+
+DeepFilterNet runs inside the main `.venv`.
+
+------------------------------------------------------------------------
+
+## 3. Micromamba Audio Environment (Demucs)
+
+Demucs runs in a separate micromamba environment to isolate PyTorch
+dependencies from the main `.venv`.
+
+Create the environment:
+
+``` bash
+micromamba create -n medspeech-audio -c conda-forge python=3.11 -y
+micromamba run -n medspeech-audio python -m pip install --upgrade pip
+micromamba run -n medspeech-audio python -m pip install demucs torchcodec
+```
+
+Create a wrapper so Demucs is callable from the main shell.
+
+Create `~/bin/demucs`:
+
+``` bash
+#!/usr/bin/env bash
+unset HF_TOKEN
+unset HUGGINGFACE_HUB_TOKEN
+exec /opt/homebrew/bin/micromamba run -n medspeech-audio demucs "$@"
+```
+
+Then:
+
+``` bash
+chmod +x ~/bin/demucs
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+------------------------------------------------------------------------
+
+# Returning and Re-Running Experiments
+
+After reopening VSCode or starting a new terminal session, run:
+
+``` bash
+source scripts/dev_shell.sh
+```
+
+This will:
+
+-   Add `~/bin` to PATH
+-   Ensure Demucs wrapper exists
+-   Activate `.venv`
+-   Verify micromamba environment
+-   Confirm Demucs is runnable
+
+You are then ready to execute experiments.
 
 ------------------------------------------------------------------------
 
@@ -31,9 +105,7 @@ next.
 
 ## Stage 0 --- Audio Preparation
 
--   Converts input audio to:
-    -   16 kHz
-    -   Mono WAV
+-   Converts input audio to 16 kHz mono WAV
 -   Applies gentle loudness normalization
 
 ------------------------------------------------------------------------
@@ -42,181 +114,47 @@ next.
 
 DeepFilterNet2 is used for speech-focused denoising.
 
-### Why DeepFilterNet?
-
--   Designed specifically for speech enhancement
--   Performs well on:
-    -   Background environmental noise
-    -   Handling noise
-    -   Broadband interference
--   Minimal speech distortion
--   Fast enough for laptop deployment
-
-In testing, DeepFilterNet consistently improved ASR performance without
-introducing the musical artifacts common in source separation models.
+DeepFilterNet consistently improves ASR performance without introducing
+the musical artifacts common in source separation models.
 
 ------------------------------------------------------------------------
 
 ## Stage 0b --- Speech Separation (Demucs)
 
-Demucs is optionally used as a **competing-source suppressor** using:
+Demucs is optionally used as a competing-source suppressor:
 
     demucs --two-stems vocals
 
-### Observations
-
--   Demucs performs reasonably well at isolating vocal-like content.
--   It does **not significantly improve ASR results** when DeepFilterNet
-    has already been applied.
--   It takes longer to run than DeepFilterNet.
--   In most test cases, it did **not add measurable benefit** beyond
-    Stage 0a.
-
-Demucs is therefore kept optional and primarily for experimentation in
-scenarios involving strong competing structured audio (e.g., radio,
-background speech, PA systems).
+Demucs is retained primarily for experimentation in scenarios involving
+strong competing structured audio (radio, PA systems, background
+speech).
 
 ------------------------------------------------------------------------
 
 # Separation Experiments (Retired)
 
-Two advanced speech separation models were evaluated:
-
-## 1️⃣ SepFormer (SpeechBrain)
+## SepFormer (SpeechBrain)
 
 -   Model: speechbrain/sepformer-wsj02mix
--   Single-channel two-speaker separation
--   Transformer-based architecture
-
-### Result
-
+-   Transformer-based two-speaker separation
 -   Introduced distortion in real-world recordings
 -   Degraded Whisper transcription accuracy
--   Produced artifacts worse than background noise
 
-Conclusion: Not suitable for chaotic field audio in current form.
-
-------------------------------------------------------------------------
-
-## 2️⃣ Conv-TasNet (Asteroid)
+## Conv-TasNet (Asteroid)
 
 -   Model: mpariente/ConvTasNet_WHAM_sepclean
 -   Convolutional time-domain separation network
+-   Produced significant distortion
+-   Reduced intelligibility and harmed ASR
 
-### Result
-
--   Significant distortion
--   Reduced intelligibility
--   Worse ASR performance than DeepFilterNet alone
-
-Conclusion: Also not suitable for this operational domain.
-
-------------------------------------------------------------------------
-
-## Why Separation Failed
-
-Most pretrained separation models are trained on: - Clean synthetic
-mixtures (WSJ0-2Mix, WHAM) - Telephone-bandwidth speech - Limited
-environmental variability
-
-Battlefield-style recordings contain: - Reverb - Mic coloration -
-Non-stationary environmental noise - Irregular overlap
-
-These models generalized poorly to this domain and introduced artifacts
-that harmed downstream ASR.
-
-------------------------------------------------------------------------
-
-# Micromamba Audio Environment
-
-Separation models required PyTorch-based environments separate from the
-main `.venv`.
-
-We use a dedicated micromamba environment:
-
-    medspeech-audio
-
-## Rebuilding the Environment (Clean Demucs Setup)
-
-Over time, multiple experiments (SepFormer, Conv-TasNet) introduced
-dependency conflicts. The clean setup is:
-
-### 1. Remove old environment
-
-``` bash
-micromamba remove -n medspeech-audio --all -y
-```
-
-### 2. Recreate environment
-
-``` bash
-micromamba create -n medspeech-audio -c conda-forge python=3.11 -y
-```
-
-### 3. Install Demucs
-
-``` bash
-micromamba run -n medspeech-audio python -m pip install --upgrade pip
-micromamba run -n medspeech-audio python -m pip install demucs torchcodec
-```
-
-### 4. Create wrapper
-
-Create \~/bin/demucs:
-
-``` bash
-#!/usr/bin/env bash
-unset HF_TOKEN
-unset HUGGINGFACE_HUB_TOKEN
-exec micromamba run -n medspeech-audio demucs "$@"
-```
-
-Then:
-
-``` bash
-chmod +x ~/bin/demucs
-export PATH="$HOME/bin:$PATH"
-```
-
-------------------------------------------------------------------------
-
-# Project Structure
-
-    medspeech-pipeline/
-      medspeech/
-        cli.py
-        audio_io.py
-        stage0a_denoise.py
-        stage0b_separate.py
-        whisper_stage.py
-      scripts/        # experimental separation models (retained but unused)
-      runs/
-      samples/
-
-------------------------------------------------------------------------
-
-# Installation (macOS M1)
-
-## 1. Create virtual environment
-
-``` bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-```
-
-## 2. Install dependencies
-
-``` bash
-pip install typer rich pydantic soundfile numpy requests mlx-whisper
-brew install ffmpeg
-```
+These models generalized poorly to chaotic field audio and are retained
+only as experimental code.
 
 ------------------------------------------------------------------------
 
 # Running the Pipeline
 
-Place test audio in the samples/ directory.
+Place test audio in the `samples/` directory.
 
 Basic run:
 
@@ -240,7 +178,7 @@ python -m medspeech.cli samples/test.mp3 --whisper-model mlx-community/whisper-l
 
 # Output
 
-Each run creates a timestamped directory inside runs/ containing:
+Each run creates a timestamped directory inside `runs/` containing:
 
 -   raw.wav
 -   transcript_raw.txt
@@ -248,12 +186,6 @@ Each run creates a timestamped directory inside runs/ containing:
 -   clean_0a0b.wav
 -   transcript_clean.txt
 -   run_meta.json
-
-This enables empirical comparison of:
-
--   Raw vs processed audio
--   Impact of denoising/separation on ASR quality
--   Timing of each stage
 
 ------------------------------------------------------------------------
 
@@ -282,8 +214,8 @@ DeepFilterNet is already applied.
 
 The pipeline will therefore prioritize:
 
-1.  Strong denoising
-2.  Optimized Whisper decoding
+1.  Strong denoising\
+2.  Optimized Whisper decoding\
 3.  Downstream structured extraction + verification
 
 ------------------------------------------------------------------------
