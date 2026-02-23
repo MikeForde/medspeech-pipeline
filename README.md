@@ -24,7 +24,7 @@ from spoken battlefield narratives.
 
 ------------------------------------------------------------------------
 
-# First-Time Setup (macOS M1 / M2)
+# First-Time Setup (macOS Mx)
 
 ## 1. System Dependencies
 
